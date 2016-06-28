@@ -644,7 +644,13 @@ pragma is supported also."
   (interactive)
   (switch-to-buffer (intero-repl-buffer)))
 
-(defun intero-repl-buffer ()
+(defun intero-repl-load-all-modules ()
+  "Start up the REPL and load all modules for the current
+  target (only works when starting the REPL for the first time."
+  (interactive)
+  (switch-to-buffer (intero-repl-buffer t)))
+
+(defun intero-repl-buffer (&optional load-all-modules)
   (let* ((root (intero-project-root))
          (package-name (intero-package-name))
          (name (format "*intero:%s:%s:repl*"
@@ -658,7 +664,8 @@ pragma is supported also."
         (cd root)
         (intero-repl-mode)
         (intero-repl-mode-start backend-buffer
-                                (buffer-local-value 'intero-targets backend-buffer))
+                                (buffer-local-value 'intero-targets backend-buffer)
+                                (not load-all-modules))
         (current-buffer)))))
 
 (define-derived-mode intero-repl-mode comint-mode "Intero-REPL"
@@ -668,7 +675,7 @@ pragma is supported also."
     (error "You probably meant to run: M-x intero-repl"))
   (set (make-local-variable 'comint-prompt-regexp) intero-prompt-regexp))
 
-(defun intero-repl-mode-start (buffer targets)
+(defun intero-repl-mode-start (buffer targets no-load)
   "Start the process for the repl buffer."
   (setq intero-targets targets)
   (let ((arguments (intero-make-options-list
@@ -676,7 +683,8 @@ pragma is supported also."
                         (let ((package-name (buffer-local-value 'intero-package-name buffer)))
                           (unless (equal "" package-name)
                             (list package-name))))
-                    t)))
+                    t
+                    no-load)))
     (insert (propertize
              (format "Starting:\n  stack ghci %s\n" (combine-and-quote-strings arguments))
              'face 'font-lock-comment-face))
@@ -1044,7 +1052,9 @@ performing a initial actions in SOURCE-BUFFER, if specified."
                  (let ((package-name (buffer-local-value 'intero-package-name buffer)))
                    (unless (equal "" package-name)
                      (list package-name))))
-             (not (buffer-local-value 'intero-try-with-build buffer))))
+             (not (buffer-local-value 'intero-try-with-build buffer))
+             t ;; pass --no-load
+             ))
            (arguments options)
            (process (with-current-buffer buffer
                       (when debug-on-error
@@ -1108,15 +1118,16 @@ problem and flycheck is stuck."
   (flycheck-mode)
   (flycheck-buffer))
 
-(defun intero-make-options-list (targets no-build)
+(defun intero-make-options-list (targets no-build no-load)
   "Make the stack ghci options list."
   (append (list "--with-ghc"
                 "intero"
                 "--docker-run-args=--interactive=true --tty=false"
-                "--no-load"
                 )
           (when no-build
             (list "--no-build"))
+          (when no-load
+            (list "--no-load"))
           (let ((dir (make-temp-file "intero" t)))
             (list "--ghci-options"
                   (concat "-odir=" dir)
